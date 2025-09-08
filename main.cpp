@@ -2,11 +2,12 @@
 #include <zlib.h>
 #include <zstd.h>
 #include <chrono>
-#include <cstring>  // for memcmp
 #include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
+
+using Clock = std::chrono::high_resolution_clock;
 
 std::string getExeDir() {
   char path[MAX_PATH];
@@ -14,6 +15,14 @@ std::string getExeDir() {
   std::string full(path);
   auto pos = full.find_last_of("\\/");
   return full.substr(0, pos);
+}
+
+std::ofstream log_file(getExeDir() + "/result.txt");  // 全局日志文件
+
+// 同时输出到控制台和文件
+void log(const std::string& msg) {
+  std::cout << msg << std::endl;
+  log_file << msg << std::endl;
 }
 
 std::vector<char> read_file(const std::string& path) {
@@ -29,93 +38,95 @@ void test_zlib(const std::vector<char>& data, int level) {
   uLongf zip_len = compressBound(data.size());
   std::vector<char> zip_buf(zip_len);
 
-  auto start = std::chrono::high_resolution_clock::now();
-  int ret = compress2(reinterpret_cast<Bytef*>(zip_buf.data()), &zip_len,
-                      reinterpret_cast<const Bytef*>(data.data()), data.size(),
-                      level);
-  auto end = std::chrono::high_resolution_clock::now();
+  auto start = Clock::now();
+  int ret = compress2((Bytef*)zip_buf.data(), &zip_len,
+                      (const Bytef*)data.data(), data.size(), level);
+  auto end = Clock::now();
 
   if (ret != Z_OK) {
-    std::cout << "[zlib] compress fail at level " << level << std::endl;
+    log("[zlib] compress fail at level " + std::to_string(level));
     return;
   }
 
   double time_s = std::chrono::duration<double>(end - start).count();
-  std::cout << "[zlib] level=" << level << " time=" << time_s << "s"
-            << " compressed_size=" << zip_len / 1024.0 / 1024.0 << " MB"
-            << " ratio=" << double(zip_len) / data.size() << std::endl;
+  log("[zlib] level=" + std::to_string(level) +
+      " time=" + std::to_string(time_s) + "s" +
+      " compressed_size=" + std::to_string(zip_len / 1024.0 / 1024.0) + " MB" +
+      " ratio=" + std::to_string(double(zip_len) / data.size()));
 
   // 解压缩测试
   std::vector<char> unzip_buf(data.size());
   uLongf unzip_len = data.size();
 
-  start = std::chrono::high_resolution_clock::now();
-  ret = uncompress(reinterpret_cast<Bytef*>(unzip_buf.data()), &unzip_len,
-                   reinterpret_cast<const Bytef*>(zip_buf.data()), zip_len);
-  end = std::chrono::high_resolution_clock::now();
+  start = Clock::now();
+  ret = uncompress((Bytef*)unzip_buf.data(), &unzip_len,
+                   (const Bytef*)zip_buf.data(), zip_len);
+  end = Clock::now();
 
   if (ret != Z_OK || unzip_len != data.size() ||
-      std::memcmp(unzip_buf.data(), data.data(), data.size()) != 0) {
-    std::cout << "[zlib] decompress check FAIL at level " << level << std::endl;
+      memcmp(unzip_buf.data(), data.data(), data.size()) != 0) {
+    log("[zlib] decompress check FAIL at level " + std::to_string(level));
     return;
   }
 
   time_s = std::chrono::duration<double>(end - start).count();
-  std::cout << "  [zlib] decompress time=" << time_s << "s" << std::endl;
+  log("[zlib] decompress time=" + std::to_string(time_s) + "s");
 }
 
 void test_zstd(const std::vector<char>& data, int level) {
   size_t zip_len = ZSTD_compressBound(data.size());
   std::vector<char> zip_buf(zip_len);
 
-  auto start = std::chrono::high_resolution_clock::now();
+  auto start = Clock::now();
   size_t ret_len =
       ZSTD_compress(zip_buf.data(), zip_len, data.data(), data.size(), level);
-  auto end = std::chrono::high_resolution_clock::now();
+  auto end = Clock::now();
 
   if (ZSTD_isError(ret_len)) {
-    std::cout << "[zstd] compress fail at level " << level
-              << " err=" << ZSTD_getErrorName(ret_len) << std::endl;
+    log("[zstd] compress fail at level " + std::to_string(level) +
+        " err=" + ZSTD_getErrorName(ret_len));
     return;
   }
 
   double time_s = std::chrono::duration<double>(end - start).count();
-  std::cout << "[zstd] level=" << level << " time=" << time_s << "s"
-            << " compressed_size=" << ret_len / 1024.0 / 1024.0 << " MB"
-            << " ratio=" << double(ret_len) / data.size() << std::endl;
+  log("[zstd] level=" + std::to_string(level) +
+      " time=" + std::to_string(time_s) + "s" +
+      " compressed_size=" + std::to_string(ret_len / 1024.0 / 1024.0) + " MB" +
+      " ratio=" + std::to_string(double(ret_len) / data.size()));
 
   // 解压缩测试
   std::vector<char> unzip_buf(data.size());
-  start = std::chrono::high_resolution_clock::now();
+  start = Clock::now();
   size_t dec_len =
       ZSTD_decompress(unzip_buf.data(), data.size(), zip_buf.data(), ret_len);
-  end = std::chrono::high_resolution_clock::now();
+  end = Clock::now();
 
   if (ZSTD_isError(dec_len) || dec_len != data.size() ||
-      std::memcmp(unzip_buf.data(), data.data(), data.size()) != 0) {
-    std::cout << "[zstd] decompress check FAIL at level " << level << std::endl;
+      memcmp(unzip_buf.data(), data.data(), data.size()) != 0) {
+    log("[zstd] decompress check FAIL at level " + std::to_string(level));
     return;
   }
 
   time_s = std::chrono::duration<double>(end - start).count();
-  std::cout << "[zstd] decompress time=" << time_s << "s" << std::endl;
+  log("  [zstd] decompress time=" + std::to_string(time_s) + "s");
 }
 
 int main() {
   auto data = read_file(getExeDir() + "/data/voxel.raw");
 
-  std::cout << "original size = " << data.size() / 1024.0 / 1024.0 << " MB"
-            << std::endl;
+  log("original size = " + std::to_string(data.size() / 1024.0 / 1024.0) +
+      " MB");
 
-  std::cout << "\n=== zlib test ===" << std::endl;
-  for (int level = 3; level <= 9; ++level) {
+  log("\n=== zlib test ===");
+  for (int level = 1; level <= 9; ++level) {
     test_zlib(data, level);
   }
 
-  std::cout << "\n=== zstd test ===" << std::endl;
+  log("\n=== zstd test ===");
   for (int level = 1; level <= 9; ++level) {
     test_zstd(data, level);
   }
 
+  log_file.close();  // 关闭文件
   return 0;
 }
