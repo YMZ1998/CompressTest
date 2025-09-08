@@ -1,3 +1,4 @@
+#include <snappy.h>
 #include <windows.h>
 #include <zlib.h>
 #include <zstd.h>
@@ -108,11 +109,42 @@ void test_zstd(const std::vector<char>& data, int level) {
   }
 
   time_s = std::chrono::duration<double>(end - start).count();
-  log("  [zstd] decompress time=" + std::to_string(time_s) + "s");
+  log("[zstd] decompress time=" + std::to_string(time_s) + "s");
+}
+
+void test_snappy(const std::vector<char>& data) {
+  std::string compressed;
+  std::string uncompressed;
+
+  auto start = Clock::now();
+  snappy::Compress(data.data(), data.size(), &compressed);
+  auto end = Clock::now();
+
+  double time_s = std::chrono::duration<double>(end - start).count();
+  log("[snappy] compress time=" + std::to_string(time_s) + "s" +
+      " compressed_size=" +
+      std::to_string(compressed.size() / 1024.0 / 1024.0) + " MB" +
+      " ratio=" + std::to_string(double(compressed.size()) / data.size()));
+
+  // 解压缩测试
+  start = Clock::now();
+  snappy::Uncompress(compressed.data(), compressed.size(), &uncompressed);
+  end = Clock::now();
+
+  if (uncompressed.size() != data.size() ||
+      memcmp(uncompressed.data(), data.data(), data.size()) != 0) {
+    log("[snappy] decompress check FAIL");
+    return;
+  }
+
+  time_s = std::chrono::duration<double>(end - start).count();
+  log("[snappy] decompress time=" + std::to_string(time_s) + "s");
 }
 
 int main() {
   auto data = read_file(getExeDir() + "/data/voxel.raw");
+
+  //data.resize(data.size() / 4);
 
   log("original size = " + std::to_string(data.size() / 1024.0 / 1024.0) +
       " MB");
@@ -126,6 +158,9 @@ int main() {
   for (int level = 1; level <= 9; ++level) {
     test_zstd(data, level);
   }
+
+  log("\n=== snappy test ===");
+  test_snappy(data);
 
   log_file.close();  // 关闭文件
   return 0;

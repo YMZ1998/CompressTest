@@ -7,7 +7,8 @@ project(CompressTest)
 
 find_package(ZLIB REQUIRED)
 find_package(zstd CONFIG REQUIRED)
+find_package(Snappy CONFIG REQUIRED)
 
 add_executable(compress_test main.cpp)
 
-target_link_libraries(compress_test PRIVATE ZLIB::ZLIB zstd::libzstd)
+target_link_libraries(compress_test PRIVATE ZLIB::ZLIB zstd::libzstd Snappy::snappy)
